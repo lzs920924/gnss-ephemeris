@@ -2,52 +2,49 @@ name: Download GNSS Ephemeris
 
 on:
   schedule:
-    # 每小时运行一次
     - cron: '0 * * * *'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   download:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout
       uses: actions/checkout@v4
       
-    - name: Download latest BRDC
+    - name: Download BRDC from CDDIS
+      env:
+        CDDIS_USER: ${{ secrets.CDDIS_USER }}
+        CDDIS_PASS: ${{ secrets.CDDIS_PASS }}
       run: |
-        # 获取当前日期信息
         YEAR=$(date -u +%Y)
         DOY=$(date -u +%j)
         
-        # 创建目录
         mkdir -p data
         
-        # 下载当天的 BRDC 文件
         FILENAME="BRDC00IGS_R_${YEAR}${DOY}0000_01D_MN.rnx.gz"
         URL="https://cddis.nasa.gov/archive/gnss/data/daily/${YEAR}/brdc/${FILENAME}"
         
         echo "Downloading: $URL"
-        curl -f -o "data/${FILENAME}" "$URL" || echo "Today's file not available yet"
+        curl -f -u "${CDDIS_USER}:${CDDIS_PASS}" -o "data/${FILENAME}" "$URL" || echo "Today not available"
         
-        # 也下载昨天的作为备份
+        # 昨天的
         YESTERDAY=$(date -u -d "yesterday" +%j)
         YEAR_Y=$(date -u -d "yesterday" +%Y)
         FILENAME_Y="BRDC00IGS_R_${YEAR_Y}${YESTERDAY}0000_01D_MN.rnx.gz"
         URL_Y="https://cddis.nasa.gov/archive/gnss/data/daily/${YEAR_Y}/brdc/${FILENAME_Y}"
         
-        echo "Downloading yesterday: $URL_Y"
-        curl -f -o "data/${FILENAME_Y}" "$URL_Y" || echo "Yesterday's file failed"
+        curl -f -u "${CDDIS_USER}:${CDDIS_PASS}" -o "data/${FILENAME_Y}" "$URL_Y" || echo "Yesterday failed"
         
-        # 创建最新文件的符号链接信息
         ls -la data/
-        echo "$FILENAME" > data/latest.txt
         
     - name: Commit and push
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
         git add data/
-        git diff --staged --quiet || git commit -m "Update ephemeris $(date -u +%Y-%m-%d_%H:%M)"
+        git diff --staged --quiet || git commit -m "Update $(date -u +%Y-%m-%d_%H:%M)"
         git push
-
