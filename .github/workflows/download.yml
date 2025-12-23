@@ -8,14 +8,15 @@ on:
 jobs:
   download:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     
     steps:
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Download BRDC from CDDIS
+    - name: Create data directory
+      run: mkdir -p data
+      
+    - name: Download BRDC ephemeris
       env:
         CDDIS_USER: ${{ secrets.CDDIS_USER }}
         CDDIS_PASS: ${{ secrets.CDDIS_PASS }}
@@ -23,28 +24,33 @@ jobs:
         YEAR=$(date -u +%Y)
         DOY=$(date -u +%j)
         
-        mkdir -p data
+        echo "Downloading for Year: $YEAR, DOY: $DOY"
         
+        # 设置 .netrc
+        echo "machine urs.earthdata.nasa.gov login ${CDDIS_USER} password ${CDDIS_PASS}" > ~/.netrc
+        chmod 600 ~/.netrc
+        
+        URL="https://cddis.nasa.gov/archive/gnss/data/daily/${YEAR}/brdc/BRDC00IGS_R_${YEAR}${DOY}0000_01D_MN.rnx.gz"
         FILENAME="BRDC00IGS_R_${YEAR}${DOY}0000_01D_MN.rnx.gz"
-        URL="https://cddis.nasa.gov/archive/gnss/data/daily/${YEAR}/brdc/${FILENAME}"
         
-        echo "Downloading: $URL"
-        curl -f -u "${CDDIS_USER}:${CDDIS_PASS}" -o "data/${FILENAME}" "$URL" || echo "Today not available"
+        # 下载（跟随重定向，使用 netrc 认证，保存 cookie）
+        curl -L -n -c ~/.cookies -b ~/.cookies -o "data/${FILENAME}" "$URL"
         
-        # 昨天的
-        YESTERDAY=$(date -u -d "yesterday" +%j)
-        YEAR_Y=$(date -u -d "yesterday" +%Y)
-        FILENAME_Y="BRDC00IGS_R_${YEAR_Y}${YESTERDAY}0000_01D_MN.rnx.gz"
-        URL_Y="https://cddis.nasa.gov/archive/gnss/data/daily/${YEAR_Y}/brdc/${FILENAME_Y}"
-        
-        curl -f -u "${CDDIS_USER}:${CDDIS_PASS}" -o "data/${FILENAME_Y}" "$URL_Y" || echo "Yesterday failed"
-        
-        ls -la data/
+        # 验证是否为有效 gzip
+        if file "data/${FILENAME}" | grep -q "gzip"; then
+          echo "✅ Valid GZIP downloaded!"
+          ls -la "data/${FILENAME}"
+        else
+          echo "❌ Invalid file, content:"
+          head -c 200 "data/${FILENAME}"
+          rm -f "data/${FILENAME}"
+          exit 1
+        fi
         
     - name: Commit and push
       run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
         git add data/
         git diff --staged --quiet || git commit -m "Update $(date -u +%Y-%m-%d_%H:%M)"
         git push
