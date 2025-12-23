@@ -13,39 +13,25 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Create data directory
-      run: mkdir -p data
-      
     - name: Download BRDC ephemeris
-      env:
-        CDDIS_USER: ${{ secrets.CDDIS_USER }}
-        CDDIS_PASS: ${{ secrets.CDDIS_PASS }}
       run: |
-        YEAR=$(date -u +%Y)
-        DOY=$(date -u +%j)
+        mkdir -p data
         
-        echo "Downloading for Year: $YEAR, DOY: $DOY"
+        # 下载今天和昨天的文件
+        for OFFSET in 0 1; do
+          DATE=$(date -u -d "-${OFFSET} days" +%Y-%j)
+          YEAR=${DATE%-*}
+          DOY=${DATE#*-}
+          FILENAME="BRDC00IGS_R_${YEAR}${DOY}0000_01D_MN.rnx.gz"
+          
+          if [ ! -f "data/${FILENAME}" ]; then
+            URL="https://igs.bkg.bund.de/root_ftp/IGS/BRDC/${YEAR}/${DOY}/${FILENAME}"
+            echo "Downloading: $FILENAME"
+            curl -L -f -o "data/${FILENAME}" --connect-timeout 60 "$URL" || true
+          fi
+        done
         
-        # 设置 .netrc
-        echo "machine urs.earthdata.nasa.gov login ${CDDIS_USER} password ${CDDIS_PASS}" > ~/.netrc
-        chmod 600 ~/.netrc
-        
-        URL="https://cddis.nasa.gov/archive/gnss/data/daily/${YEAR}/brdc/BRDC00IGS_R_${YEAR}${DOY}0000_01D_MN.rnx.gz"
-        FILENAME="BRDC00IGS_R_${YEAR}${DOY}0000_01D_MN.rnx.gz"
-        
-        # 下载（跟随重定向，使用 netrc 认证，保存 cookie）
-        curl -L -n -c ~/.cookies -b ~/.cookies -o "data/${FILENAME}" "$URL"
-        
-        # 验证是否为有效 gzip
-        if file "data/${FILENAME}" | grep -q "gzip"; then
-          echo "✅ Valid GZIP downloaded!"
-          ls -la "data/${FILENAME}"
-        else
-          echo "❌ Invalid file, content:"
-          head -c 200 "data/${FILENAME}"
-          rm -f "data/${FILENAME}"
-          exit 1
-        fi
+        ls -la data/
         
     - name: Commit and push
       run: |
